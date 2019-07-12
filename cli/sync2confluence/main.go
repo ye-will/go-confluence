@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/athurg/go-confluence"
+	"github.com/ye-will/go-confluence"
 )
 
 //作为Content解析的文件后缀名，当前支持Markdown文件和直接存储的XML文件

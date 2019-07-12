@@ -1,4 +1,4 @@
-module github.com/athurg/go-confluence
+module github.com/ye-will/go-confluence
 
 replace gopkg.in/russross/blackfriday.v2 v2.0.1 => github.com/russross/blackfriday v2.0.0+incompatible
 
