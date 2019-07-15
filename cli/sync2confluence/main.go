@@ -14,9 +14,11 @@ import (
 )
 
 //作为Content解析的文件后缀名，当前支持Markdown文件和直接存储的XML文件
-var AssetsDirName = "assets"
+var AssetsDirName string
+var StateFile string
 var ContentFileExts = []string{".md", ".xml"}
 var EnableHardLineBreak bool
+var EnableState bool
 
 func main() {
 	var addr, user, pass, space, dir string
@@ -27,7 +29,9 @@ func main() {
 	flag.StringVar(&space, "s", "", "Confluence空间标识")
 	flag.StringVar(&dir, "d", "", "要导入的目录")
 	flag.StringVar(&AssetsDirName, "assets", "assets", "图片和附件专用的目录名")
+	flag.StringVar(&StateFile, "state", "state.json", "本地状态文件名")
 
+	flag.BoolVar(&EnableState, "useState", false, "是否使用状态文件")
 	flag.BoolVar(&EnableHardLineBreak, "hardLineBreak", false, "是否将换行符视为页面换行")
 
 	flag.Parse()
@@ -50,34 +54,45 @@ func ImportToSpace(addr, user, pass, space, from string) error {
 		return fmt.Errorf("获取列表错误: %s", err)
 	}
 
-	//缓存已经创建的Content ID，以便其子Content查找父Content的ID
-	contentIds := make(map[string]string)
+	var state tState
+
+	if EnableState {
+		state = newState(StateFile)
+		defer state.save()
+	} else {
+		state = newState("")
+	}
 
 	//处理目录，由于目录存在依赖关系，因此必需串行处理
 	total := len(dirs)
 	for i, item := range dirs {
-		log.Printf("[%3d/%d]目录: %s", i+1, total, item.Path)
-		parentId := contentIds[item.ParentTitle]
-
+		node := state.getNode(item.Title)
+		parentNode := state.getNode(item.ParentTitle)
 		data, err := getDirContentData(item.Path, item.ParentTitle)
 		if err != nil {
 			return fmt.Errorf("处理目录%s失败: %s", item.Path, err)
 		}
+		hash, isChanged := node.compageHash(data)
+		isChanged = isChanged || node.ParentID != parentNode.ID || !EnableState
 
-		content, err := client.PageFindOrCreateBySpaceAndTitle(space, parentId, item.Title, string(data))
-		if err != nil {
-			return fmt.Errorf("%s\n创建/更新%s错误: %s", string(data), item.Path, err)
+		if isChanged {
+			content, err := client.PageFindOrCreateBySpaceAndTitle(space, parentNode.ID, item.Title, string(data))
+			if err != nil {
+				return fmt.Errorf("%s\n创建/更新%s错误: %s", string(data), item.Path, err)
+			}
+			node.ID = content.Id
+			node.ParentID = parentNode.ID
+			node.Hash = hash
+			log.Printf("[%3d/%d]更新目录: %s", i+1, total, item.Path)
+		} else {
+			log.Printf("[%3d/%d]跳过目录: %s", i+1, total, item.Path)
 		}
-
-		contentIds[item.Title] = content.Id
-
 		//处理目录下的附件，优先使用其assets子目录，缺省则使用自身
 		attachmentFiles, err := getAttachmentFiles(item.Path)
 		if err != nil {
 			return fmt.Errorf("更新目录%s附件错误: %s", item.Path, err)
 		}
-
-		err = client.UpdateContentAttachments(content.Id, attachmentFiles)
+		err = client.UpdateContentAttachments(node.ID, attachmentFiles)
 		if err != nil {
 			return fmt.Errorf("更新目录%s附件错误: %s", item.Path, err)
 		}
@@ -91,8 +106,8 @@ func ImportToSpace(addr, user, pass, space, from string) error {
 
 		go func(info FileContentInfo) {
 			defer wg.Done()
-
-			parentId := contentIds[info.ParentTitle]
+			node := state.getNode(info.Title)
+			parentNode := state.getNode(info.ParentTitle)
 
 			buff, err := getFileContentData(info.Path, info.Ext, info.ParentTitle)
 			if err != nil {
@@ -100,13 +115,22 @@ func ImportToSpace(addr, user, pass, space, from string) error {
 				return
 			}
 
-			_, err = client.PageFindOrCreateBySpaceAndTitle(space, parentId, info.Title, string(buff))
-			if err != nil {
-				errs <- fmt.Errorf("%s\n\033[31m错误文件%s错误: %s\033[0m", string(buff), info.Path, err)
-				return
-			}
+			hash, isChanged := node.compageHash(buff)
+			isChanged = isChanged || node.ParentID != parentNode.ID || !EnableState
 
-			log.Printf("完成文件: %s", info.Path)
+			if isChanged {
+				content, err := client.PageFindOrCreateBySpaceAndTitle(space, parentNode.ID, info.Title, string(buff))
+				if err != nil {
+					errs <- fmt.Errorf("%s\n\033[31m错误文件%s错误: %s\033[0m", string(buff), info.Path, err)
+					return
+				}
+				node.Hash = hash
+				node.ID = content.Id
+				node.ParentID = parentNode.ID
+				log.Printf("完成文件: %s", info.Path)
+			} else {
+				log.Printf("跳过文件: %s", info.Path)
+			}
 		}(item)
 	}
 

@@ -173,31 +173,12 @@ func (cli *Client) PageFindOrCreateBySpaceAndTitle(space, parentId, title, data 
 		return cli.PageCreateInSpace(space, parentId, title, data)
 	}
 
-	//存在：对比内容是否有变化
-	newValue, err := cli.ContentBodyConvertTo(data, "storage", "view")
-	if err != nil {
-		return Content{}, fmt.Errorf("转换新内容失败: %s", err)
-	}
-
-	oldValue, err := cli.ContentBodyConvertTo(content.Body.Storage.Value, "storage", "view")
-	if err != nil {
-		return Content{}, fmt.Errorf("转换旧内容失败: %s", err)
-	}
-
-	if newValue == oldValue {
-		return content, nil
-	}
-
 	// 存在则否则更新
 	content.Space.Key = space
 	content.Version.Number += 1
 	content.Version.Message = time.Now().Local().Format("机器人更新于2006-01-02 15:04:05")
 	content.SetStorageBody(data)
-
-	//设置父页面
-	if parentId != "" {
-		content.Ancestors = []Content{Content{Id: parentId}}
-	}
+	content.Ancestors = []Content{Content{Id: parentId}}
 
 	return cli.ContentUpdate(content)
 }
