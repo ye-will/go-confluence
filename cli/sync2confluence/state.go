@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"sync"
 )
 
 type tNode struct {
@@ -14,12 +15,13 @@ type tNode struct {
 }
 
 type tState struct {
-	file string
-	data map[string]*tNode
+	file  string
+	loker *sync.Mutex
+	data  map[string]*tNode
 }
 
 func newState(stateName string) tState {
-	state := tState{stateName, make(map[string]*tNode)}
+	state := tState{stateName, &sync.Mutex{}, make(map[string]*tNode)}
 	data, err := ioutil.ReadFile(stateName)
 	if err != nil {
 		return state
@@ -29,6 +31,8 @@ func newState(stateName string) tState {
 }
 
 func (s *tState) getNode(nodeName string) *tNode {
+	s.loker.Lock()
+	defer s.loker.Unlock()
 	if nodeName == "" {
 		return &tNode{}
 	}
