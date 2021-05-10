@@ -106,7 +106,15 @@ func (cli *Client) ContentCreateInSpace(contentType, space, parentId, title, dat
 
 	//设置父页面
 	if parentId != "" {
-		content.Ancestors = []Content{Content{Id: parentId}}
+		// content.Ancestors = []Content{Content{Id: parentId}}
+		content.Ancestors = []Content{
+			{
+				Id: parentId,
+				Space: Space{
+					Key: content.Space.Key,
+				},
+			},
+		}
 	}
 
 	resp, err := cli.ApiPOST("/content", content)
@@ -178,7 +186,15 @@ func (cli *Client) PageFindOrCreateBySpaceAndTitle(space, parentId, title, data 
 	content.Version.Number += 1
 	content.Version.Message = time.Now().Local().Format("机器人更新于2006-01-02 15:04:05")
 	content.SetStorageBody(data)
-	content.Ancestors = []Content{Content{Id: parentId}}
+	// content.Ancestors = []Content{Content{Id: parentId}}
+	content.Ancestors = []Content{
+		{
+			Id: parentId,
+			Space: Space{
+				Key: content.Space.Key,
+			},
+		},
+	}
 
 	return cli.ContentUpdate(content)
 }
